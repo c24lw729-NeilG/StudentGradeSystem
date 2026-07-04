@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>個人成績查詢系統</title>
+    <title>個人歷次成績查詢系統</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         :root {
@@ -13,62 +13,42 @@
             --card-bg: #ffffff;
             --success-color: #2ec4b6;
             --danger-color: #e71d36;
+            --highlight: #f39c12;
         }
         body {
             background-color: var(--bg-color);
             color: #333;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif, "Microsoft JhengHei";
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             padding: 20px;
             margin: 0;
         }
-        .container {
-            max-width: 800px;
-            margin: 0 auto;
-        }
+        .container { max-width: 800px; margin: 0 auto; }
         .card {
-            background: var(--card-bg);
-            padding: 25px;
-            border-radius: 12px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+            background: var(--card-bg); padding: 25px;
+            border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05);
         }
         .student-info-box {
-            display: flex;
-            justify-content: space-around;
-            background: #f8f9fa;
-            padding: 15px;
-            border-radius: 8px;
-            margin-bottom: 25px;
-            font-size: 16px;
-            font-weight: bold;
+            display: flex; justify-content: space-around;
+            background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px;
+            font-size: 16px; font-weight: bold; flex-wrap: wrap; gap: 10px;
         }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-bottom: 25px;
+        .rank-badge {
+            background: var(--highlight); color: white;
+            padding: 4px 10px; border-radius: 20px; font-size: 14px;
         }
-        th, td {
-            border: 1px solid #e0e0e0;
-            padding: 12px;
-            text-align: center;
+        .exam-selector-container {
+            text-align: center; margin-bottom: 20px;
         }
+        select {
+            padding: 10px; font-size: 16px; border-radius: 5px;
+            border: 2px solid var(--primary-color); outline: none; cursor: pointer;
+        }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 25px; }
+        th, td { border: 1px solid #e0e0e0; padding: 12px; text-align: center; }
         th { background-color: #f8f9fa; }
-        .chart-container {
-            position: relative;
-            height: 400px;
-            width: 100%;
-        }
-        #loading {
-            text-align: center;
-            font-size: 18px;
-            color: var(--primary-color);
-            padding: 50px;
-        }
-        #error-message {
-            color: var(--danger-color);
-            text-align: center;
-            font-weight: bold;
-            display: none;
-        }
+        .chart-container { position: relative; height: 350px; width: 100%; }
+        #loading { text-align: center; font-size: 18px; color: var(--primary-color); padding: 50px; }
+        #error-message { color: var(--danger-color); text-align: center; font-weight: bold; display: none; }
         #result-section { display: none; }
     </style>
 </head>
@@ -78,16 +58,25 @@
     <div class="card">
         <h2 style="text-align: center; color: var(--primary-color);">個人成績查詢系統</h2>
         
-        <!-- 載入與錯誤訊息 -->
         <div id="loading">連線雲端資料庫中，請稍候...</div>
         <div id="error-message"></div>
 
-        <!-- 成績顯示區 -->
         <div id="result-section">
             <div class="student-info-box">
                 <div>座號：<span id="info-seat" style="color:var(--primary-color);"></span></div>
                 <div>姓名：<span id="info-name" style="color:var(--primary-color);"></span></div>
-                <div>個人平均：<span id="info-avg" style="color:var(--primary-color);"></span></div>
+            </div>
+
+            <div class="exam-selector-container">
+                <label for="exam-select" style="font-weight:bold;">請選擇考試：</label>
+                <select id="exam-select" onchange="renderExamData()"></select>
+            </div>
+
+            <div class="student-info-box" style="background: #e9f5f9;">
+                <div>平均：<span id="info-avg" style="color:var(--primary-color);"></span></div>
+                <div>班級排名：<span id="info-rank" class="rank-badge"></span> 
+                     <span style="font-size: 14px; font-weight: normal; color: #555;" id="info-total-stu"></span>
+                </div>
             </div>
 
             <table>
@@ -101,7 +90,7 @@
                 <tbody id="score-tbody"></tbody>
             </table>
 
-            <h3 style="text-align: center; margin-top:30px;">個人與班級平均比較圖</h3>
+            <h3 style="text-align: center;">個人與班級平均比較圖</h3>
             <div class="chart-container">
                 <canvas id="scoreChart"></canvas>
             </div>
@@ -110,20 +99,31 @@
 </div>
 
 <script>
-    // ⚠️ 老師請把這裡的引號內容，替換成您部署 Apps Script 得到的 URL
+    // ⚠️ 替換成您的最新網址
     const GAS_API_URL = "https://script.google.com/macros/s/AKfycbyq6XLva5EsEGBLMATn8ZIKpfPqBReEG80k-TK9z5FxY0GpLdhT3aHkTzpVkSk-U9jq3A/exec";
+    let studentDataCache = null;
+    let myChart = null;
 
     window.addEventListener('DOMContentLoaded', () => {
-        // 從網址列取得專屬密碼 (例如網址是 index.html?token=pwd01)
         const urlParams = new URLSearchParams(window.location.search);
         const token = urlParams.get('token');
 
         if (!token) {
-            showError("未偵測到您的專屬識別碼，請使用老師發放的專屬連結或 QR Code 進入。");
+            showError("未偵測到您的專屬識別碼，請使用專屬連結進入。");
             return;
         }
 
-        fetchDataFromGoogle(token);
+        fetch(`${GAS_API_URL}?token=${token}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    showError(data.error);
+                } else {
+                    studentDataCache = data;
+                    initSystem();
+                }
+            })
+            .catch(error => showError("無法連線至雲端系統，請稍後再試。"));
     });
 
     function showError(msg) {
@@ -133,39 +133,49 @@
         errDiv.innerText = msg;
     }
 
-    function fetchDataFromGoogle(token) {
-        // 向 Google 發送請求
-        fetch(`${GAS_API_URL}?token=${token}`)
-            .then(response => response.json())
-            .then(data => {
-                if (data.error) {
-                    showError(data.error);
-                } else {
-                    renderData(data);
-                }
-            })
-            .catch(error => {
-                showError("無法連線至雲端系統，請稍後再試。");
-            });
-    }
-
-    function renderData(data) {
+    function initSystem() {
         document.getElementById('loading').style.display = 'none';
         document.getElementById('result-section').style.display = 'block';
 
-        const student = data.student;
-        document.getElementById('info-seat').innerText = student.seat;
-        document.getElementById('info-name').innerText = student.name;
+        document.getElementById('info-seat').innerText = studentDataCache.studentInfo.seat;
+        document.getElementById('info-name').innerText = studentDataCache.studentInfo.name;
+
+        // 建立下拉選單 (最新考試排在最前面)
+        const selectBox = document.getElementById('exam-select');
+        selectBox.innerHTML = '';
+        // 反轉陣列，讓最後一筆資料(最新考試)在最上面
+        const reversedExams = [...studentDataCache.exams].reverse(); 
+        
+        reversedExams.forEach((exam, index) => {
+            const option = document.createElement('option');
+            // 將 option value 設為原始陣列的正確 index
+            option.value = studentDataCache.exams.length - 1 - index; 
+            option.text = exam.examName;
+            selectBox.appendChild(option);
+        });
+
+        // 預設渲染最新的考試
+        renderExamData();
+    }
+
+    function renderExamData() {
+        const selectedIndex = document.getElementById('exam-select').value;
+        const examData = studentDataCache.exams[selectedIndex];
+
+        document.getElementById('info-avg').innerText = examData.average.toFixed(1);
+        document.getElementById('info-rank').innerText = `第 ${examData.rank} 名`;
+        document.getElementById('info-total-stu').innerText = `(共 ${examData.totalStudents} 人)`;
 
         const tbody = document.getElementById('score-tbody');
-        let totalScore = 0;
+        tbody.innerHTML = '';
+        
+        let subjects = Object.keys(examData.scores);
         let myChartScores = [];
         let classChartAverages = [];
 
-        data.subjects.forEach(sub => {
-            const myScore = student.scores[sub];
-            const classAvg = data.classAverages[sub];
-            totalScore += myScore;
+        subjects.forEach(sub => {
+            const myScore = examData.scores[sub];
+            const classAvg = examData.classAverages[sub];
             
             myChartScores.push(myScore);
             classChartAverages.push(classAvg.toFixed(1));
@@ -179,29 +189,22 @@
             tbody.appendChild(tr);
         });
 
-        const myAvg = (totalScore / data.subjects.length).toFixed(1);
-        document.getElementById('info-avg').innerText = myAvg;
-
-        // 畫圖
+        // 重新繪製圖表
+        if (myChart) myChart.destroy();
         const ctx = document.getElementById('scoreChart').getContext('2d');
-        new Chart(ctx, {
+        myChart = new Chart(ctx, {
             type: 'line',
             data: {
-                labels: data.subjects,
+                labels: subjects,
                 datasets: [
                     {
-                        label: '我的成績',
-                        data: myChartScores,
-                        borderColor: '#4e4376',
-                        backgroundColor: 'rgba(78, 67, 118, 0.1)',
+                        label: '我的成績', data: myChartScores,
+                        borderColor: '#4e4376', backgroundColor: 'rgba(78, 67, 118, 0.1)',
                         borderWidth: 3, fill: true
                     },
                     {
-                        label: '全班平均',
-                        data: classChartAverages,
-                        borderColor: '#2ec4b6',
-                        borderDash: [5, 5],
-                        borderWidth: 2
+                        label: '全班平均', data: classChartAverages,
+                        borderColor: '#2ec4b6', borderDash: [5, 5], borderWidth: 2
                     }
                 ]
             },
