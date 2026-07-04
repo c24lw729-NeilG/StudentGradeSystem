@@ -113,8 +113,11 @@
             return;
         }
 
-        fetch(`${GAS_API_URL}?token=${token}`)
-            .then(response => response.json())
+        fetch(`${GAS_API_URL}?token=${token}`, {
+            method: 'GET',
+            redirect: 'follow'
+        })
+        .then(response => response.json())
             .then(data => {
                 if (data.error) {
                     showError(data.error);
