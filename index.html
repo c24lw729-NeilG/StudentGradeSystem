@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>個人成績查詢系統</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --primary-color: #2b5876;
+            --secondary-color: #4e4376;
+            --bg-color: #f4f7f6;
+            --card-bg: #ffffff;
+            --success-color: #2ec4b6;
+            --danger-color: #e71d36;
+        }
+        body {
+            background-color: var(--bg-color);
+            color: #333;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif, "Microsoft JhengHei";
+            padding: 20px;
+            margin: 0;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .card {
+            background: var(--card-bg);
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+        }
+        .student-info-box {
+            display: flex;
+            justify-content: space-around;
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 25px;
+            font-size: 16px;
+            font-weight: bold;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 25px;
+        }
+        th, td {
+            border: 1px solid #e0e0e0;
+            padding: 12px;
+            text-align: center;
+        }
+        th { background-color: #f8f9fa; }
+        .chart-container {
+            position: relative;
+            height: 400px;
+            width: 100%;
+        }
+        #loading {
+            text-align: center;
+            font-size: 18px;
+            color: var(--primary-color);
+            padding: 50px;
+        }
+        #error-message {
+            color: var(--danger-color);
+            text-align: center;
+            font-weight: bold;
+            display: none;
+        }
+        #result-section { display: none; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="card">
+        <h2 style="text-align: center; color: var(--primary-color);">個人成績查詢系統</h2>
+        
+        <!-- 載入與錯誤訊息 -->
+        <div id="loading">連線雲端資料庫中，請稍候...</div>
+        <div id="error-message"></div>
+
+        <!-- 成績顯示區 -->
+        <div id="result-section">
+            <div class="student-info-box">
+                <div>座號：<span id="info-seat" style="color:var(--primary-color);"></span></div>
+                <div>姓名：<span id="info-name" style="color:var(--primary-color);"></span></div>
+                <div>個人平均：<span id="info-avg" style="color:var(--primary-color);"></span></div>
+            </div>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th>科目</th>
+                        <th>個人分數</th>
+                        <th>班級平均</th>
+                    </tr>
+                </thead>
+                <tbody id="score-tbody"></tbody>
+            </table>
+
+            <h3 style="text-align: center; margin-top:30px;">個人與班級平均比較圖</h3>
+            <div class="chart-container">
+                <canvas id="scoreChart"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // ⚠️ 老師請把這裡的引號內容，替換成您部署 Apps Script 得到的 URL
+    const GAS_API_URL = "https://script.google.com/macros/s/AKfycbyq6XLva5EsEGBLMATn8ZIKpfPqBReEG80k-TK9z5FxY0GpLdhT3aHkTzpVkSk-U9jq3A/exec";
+
+    window.addEventListener('DOMContentLoaded', () => {
+        // 從網址列取得專屬密碼 (例如網址是 index.html?token=pwd01)
+        const urlParams = new URLSearchParams(window.location.search);
+        const token = urlParams.get('token');
+
+        if (!token) {
+            showError("未偵測到您的專屬識別碼，請使用老師發放的專屬連結或 QR Code 進入。");
+            return;
+        }
+
+        fetchDataFromGoogle(token);
+    });
+
+    function showError(msg) {
+        document.getElementById('loading').style.display = 'none';
+        const errDiv = document.getElementById('error-message');
+        errDiv.style.display = 'block';
+        errDiv.innerText = msg;
+    }
+
+    function fetchDataFromGoogle(token) {
+        // 向 Google 發送請求
+        fetch(`${GAS_API_URL}?token=${token}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    showError(data.error);
+                } else {
+                    renderData(data);
+                }
+            })
+            .catch(error => {
+                showError("無法連線至雲端系統，請稍後再試。");
+            });
+    }
+
+    function renderData(data) {
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('result-section').style.display = 'block';
+
+        const student = data.student;
+        document.getElementById('info-seat').innerText = student.seat;
+        document.getElementById('info-name').innerText = student.name;
+
+        const tbody = document.getElementById('score-tbody');
+        let totalScore = 0;
+        let myChartScores = [];
+        let classChartAverages = [];
+
+        data.subjects.forEach(sub => {
+            const myScore = student.scores[sub];
+            const classAvg = data.classAverages[sub];
+            totalScore += myScore;
+            
+            myChartScores.push(myScore);
+            classChartAverages.push(classAvg.toFixed(1));
+
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td style="font-weight:bold;">${sub}</td>
+                <td style="color:${myScore < 60 ? 'var(--danger-color)' : 'inherit'}; font-weight:bold;">${myScore}</td>
+                <td style="color:#777;">${classAvg.toFixed(1)}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+
+        const myAvg = (totalScore / data.subjects.length).toFixed(1);
+        document.getElementById('info-avg').innerText = myAvg;
+
+        // 畫圖
+        const ctx = document.getElementById('scoreChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: data.subjects,
+                datasets: [
+                    {
+                        label: '我的成績',
+                        data: myChartScores,
+                        borderColor: '#4e4376',
+                        backgroundColor: 'rgba(78, 67, 118, 0.1)',
+                        borderWidth: 3, fill: true
+                    },
+                    {
+                        label: '全班平均',
+                        data: classChartAverages,
+                        borderColor: '#2ec4b6',
+                        borderDash: [5, 5],
+                        borderWidth: 2
+                    }
+                ]
+            },
+            options: { responsive: true, maintainAspectRatio: false }
+        });
+    }
+</script>
+</body>
+</html>
