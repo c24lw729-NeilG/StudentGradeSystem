@@ -14,6 +14,7 @@
             --success-color: #2ec4b6;
             --danger-color: #e71d36;
             --highlight: #f39c12;
+            --highlight-alt: #e67e22;
         }
         body {
             background-color: var(--bg-color);
@@ -30,10 +31,14 @@
         .student-info-box {
             display: flex; justify-content: space-around;
             background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px;
-            font-size: 16px; font-weight: bold; flex-wrap: wrap; gap: 10px;
+            font-size: 16px; font-weight: bold; flex-wrap: wrap; gap: 15px; text-align: center;
         }
         .rank-badge {
             background: var(--highlight); color: white;
+            padding: 4px 10px; border-radius: 20px; font-size: 14px;
+        }
+        .weighted-rank-badge {
+            background: var(--highlight-alt); color: white;
             padding: 4px 10px; border-radius: 20px; font-size: 14px;
         }
         .exam-selector-container {
@@ -72,9 +77,12 @@
                 <select id="exam-select" onchange="renderExamData()"></select>
             </div>
 
+            <!-- 成績與排名區塊擴充 -->
             <div class="student-info-box" style="background: #e9f5f9;">
                 <div>平均：<span id="info-avg" style="color:var(--primary-color);"></span></div>
-                <div>班級排名：<span id="info-rank" class="rank-badge"></span> 
+                <div>加權平均：<span id="info-weighted-avg" style="color:var(--primary-color);"></span></div>
+                <div>排名：<span id="info-rank" class="rank-badge"></span></div>
+                <div>加權排名：<span id="info-weighted-rank" class="weighted-rank-badge"></span> 
                      <span style="font-size: 14px; font-weight: normal; color: #555;" id="info-total-stu"></span>
                 </div>
             </div>
@@ -83,6 +91,7 @@
                 <thead>
                     <tr>
                         <th>科目</th>
+                        <th>加權比例</th>
                         <th>個人分數</th>
                         <th>班級平均</th>
                     </tr>
@@ -99,10 +108,24 @@
 </div>
 
 <script>
-    // ⚠️ 替換成您的最新網址
+    // ⚠️ 記得在此替換成您最新發布的 GAS 網址
     const GAS_API_URL = "https://script.google.com/macros/s/AKfycbyq6XLva5EsEGBLMATn8ZIKpfPqBReEG80k-TK9z5FxY0GpLdhT3aHkTzpVkSk-U9jq3A/exec";
     let studentDataCache = null;
     let myChart = null;
+
+    // 此處保留權重清單，純粹是為了在下方表格中「顯示文字」使用，不參與前端任何計算
+    const SUBJECT_WEIGHTS_DISPLAY = {
+        '國文': 5,
+        '英文': 3,
+        '數學': 4,
+        '自然': 3,
+        '社會': 1,
+        '歷史': 1,
+        '地理': 1,
+        '公民': 1,
+        '生物': 3,
+        '理化': 3
+    };
 
     window.addEventListener('DOMContentLoaded', () => {
         const urlParams = new URLSearchParams(window.location.search);
@@ -118,15 +141,15 @@
             redirect: 'follow'
         })
         .then(response => response.json())
-            .then(data => {
-                if (data.error) {
-                    showError(data.error);
-                } else {
-                    studentDataCache = data;
-                    initSystem();
-                }
-            })
-            .catch(error => showError("無法連線至雲端系統，請稍後再試。"));
+        .then(data => {
+            if (data.error) {
+                showError(data.error);
+            } else {
+                studentDataCache = data;
+                initSystem();
+            }
+        })
+        .catch(error => showError("無法連線至雲端系統，請稍後再試。"));
     });
 
     function showError(msg) {
@@ -146,12 +169,10 @@
         // 建立下拉選單 (最新考試排在最前面)
         const selectBox = document.getElementById('exam-select');
         selectBox.innerHTML = '';
-        // 反轉陣列，讓最後一筆資料(最新考試)在最上面
         const reversedExams = [...studentDataCache.exams].reverse(); 
         
         reversedExams.forEach((exam, index) => {
             const option = document.createElement('option');
-            // 將 option value 設為原始陣列的正確 index
             option.value = studentDataCache.exams.length - 1 - index; 
             option.text = exam.examName;
             selectBox.appendChild(option);
@@ -165,8 +186,14 @@
         const selectedIndex = document.getElementById('exam-select').value;
         const examData = studentDataCache.exams[selectedIndex];
 
-        document.getElementById('info-avg').innerText = examData.average.toFixed(1);
-        document.getElementById('info-rank').innerText = `第 ${examData.rank} 名`;
+        // 1. 讀取並顯示「一般平均」與「一般排名」(由後端提供)
+        document.getElementById('info-avg').innerText = examData.average ? examData.average.toFixed(1) : '-';
+        document.getElementById('info-rank').innerText = examData.rank ? `第 ${examData.rank} 名` : '-';
+        
+        // 2. 讀取並顯示「加權平均」與「加權排名」(由後端提供，前端完全不計算)
+        document.getElementById('info-weighted-avg').innerText = examData.weightedAverage ? examData.weightedAverage.toFixed(1) : '-';
+        document.getElementById('info-weighted-rank').innerText = examData.weightedRank ? `第 ${examData.weightedRank} 名` : '-';
+
         document.getElementById('info-total-stu').innerText = `(共 ${examData.totalStudents} 人)`;
 
         const tbody = document.getElementById('score-tbody');
@@ -179,15 +206,17 @@
         subjects.forEach(sub => {
             const myScore = examData.scores[sub];
             const classAvg = examData.classAverages[sub];
+            const weightDisplay = SUBJECT_WEIGHTS_DISPLAY[sub] || 1;
             
             myChartScores.push(myScore);
-            classChartAverages.push(classAvg.toFixed(1));
+            classChartAverages.push(classAvg ? classAvg.toFixed(1) : 0);
 
             const tr = document.createElement('tr');
             tr.innerHTML = `
                 <td style="font-weight:bold;">${sub}</td>
+                <td style="color:#555;">x ${weightDisplay}</td>
                 <td style="color:${myScore < 60 ? 'var(--danger-color)' : 'inherit'}; font-weight:bold;">${myScore}</td>
-                <td style="color:#777;">${classAvg.toFixed(1)}</td>
+                <td style="color:#777;">${classAvg ? classAvg.toFixed(1) : '-'}</td>
             `;
             tbody.appendChild(tr);
         });
