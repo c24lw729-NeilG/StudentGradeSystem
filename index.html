@@ -113,20 +113,6 @@
     let studentDataCache = null;
     let myChart = null;
 
-    // 此處保留權重清單，純粹是為了在下方表格中「顯示文字」使用，不參與前端任何計算
-    const SUBJECT_WEIGHTS_DISPLAY = {
-        '國文': 5,
-        '英文': 3,
-        '數學': 4,
-        '自然': 3,
-        '社會': 1,
-        '歷史': 1,
-        '地理': 1,
-        '公民': 1,
-        '生物': 3,
-        '理化': 3
-    };
-
     window.addEventListener('DOMContentLoaded', () => {
         const urlParams = new URLSearchParams(window.location.search);
         const token = urlParams.get('token');
@@ -206,7 +192,7 @@
         subjects.forEach(sub => {
             const myScore = examData.scores[sub];
             const classAvg = examData.classAverages[sub];
-            const weightDisplay = SUBJECT_WEIGHTS_DISPLAY[sub] || 1;
+            const weightDisplay = examData.weights[sub] || 1;
             
             myChartScores.push(myScore);
             classChartAverages.push(classAvg ? classAvg.toFixed(1) : 0);
