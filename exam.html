@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>個人歷次成績查詢系統</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --primary-color: #2b5876;
+            --secondary-color: #4e4376;
+            --bg-color: #f4f7f6;
+            --card-bg: #ffffff;
+            --success-color: #2ec4b6;
+            --danger-color: #e71d36;
+            --highlight: #f39c12;
+            --highlight-alt: #e67e22;
+        }
+        body {
+            background-color: var(--bg-color);
+            color: #333;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            padding: 20px;
+            margin: 0;
+        }
+        .container { max-width: 800px; margin: 0 auto; }
+        .card {
+            background: var(--card-bg); padding: 25px;
+            border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+        }
+        .student-info-box {
+            display: flex; justify-content: space-around;
+            background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px;
+            font-size: 16px; font-weight: bold; flex-wrap: wrap; gap: 15px; text-align: center;
+        }
+        .rank-badge {
+            background: var(--highlight); color: white;
+            padding: 4px 10px; border-radius: 20px; font-size: 14px;
+        }
+        .weighted-rank-badge {
+            background: var(--highlight-alt); color: white;
+            padding: 4px 10px; border-radius: 20px; font-size: 14px;
+        }
+        .exam-selector-container {
+            text-align: center; margin-bottom: 20px;
+        }
+        select {
+            padding: 10px; font-size: 16px; border-radius: 5px;
+            border: 2px solid var(--primary-color); outline: none; cursor: pointer;
+        }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 25px; }
+        th, td { border: 1px solid #e0e0e0; padding: 12px; text-align: center; }
+        th { background-color: #f8f9fa; }
+        .chart-container { position: relative; height: 350px; width: 100%; }
+        #loading { text-align: center; font-size: 18px; color: var(--primary-color); padding: 50px; }
+        #error-message { color: var(--danger-color); text-align: center; font-weight: bold; display: none; }
+        #result-section { display: none; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="card">
+        <h2 style="text-align: center; color: var(--primary-color);">個人成績查詢系統</h2>
+        
+        <div id="loading">連線雲端資料庫中，請稍候...</div>
+        <div id="error-message"></div>
+
+        <div id="result-section">
+            <div class="student-info-box">
+                <div>座號：<span id="info-seat" style="color:var(--primary-color);"></span></div>
+                <div>姓名：<span id="info-name" style="color:var(--primary-color);"></span></div>
+            </div>
+
+            <div class="exam-selector-container">
+                <label for="exam-select" style="font-weight:bold;">請選擇考試：</label>
+                <select id="exam-select" onchange="renderExamData()"></select>
+            </div>
+
+            <!-- 成績與排名區塊擴充 -->
+            <div class="student-info-box" style="background: #e9f5f9;">
+                <div>平均：<span id="info-avg" style="color:var(--primary-color);"></span></div>
+                <div>加權平均：<span id="info-weighted-avg" style="color:var(--primary-color);"></span></div>
+                <div>排名：<span id="info-rank" class="rank-badge"></span></div>
+                <div>加權排名：<span id="info-weighted-rank" class="weighted-rank-badge"></span> 
+                     <span style="font-size: 14px; font-weight: normal; color: #555;" id="info-total-stu"></span>
+                </div>
+            </div>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th>科目</th>
+                        <th>加權比例</th>
+                        <th>個人分數</th>
+                        <th>班級平均</th>
+                    </tr>
+                </thead>
+                <tbody id="score-tbody"></tbody>
+            </table>
+
+            <h3 style="text-align: center;">個人與班級平均比較圖</h3>
+            <div class="chart-container">
+                <canvas id="scoreChart"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // ⚠️ 記得在此替換成您最新發布的 GAS 網址
+    const GAS_API_URL = "https://script.google.com/macros/s/AKfycbyq6XLva5EsEGBLMATn8ZIKpfPqBReEG80k-TK9z5FxY0GpLdhT3aHkTzpVkSk-U9jq3A/exec";
+    let studentDataCache = null;
+    let myChart = null;
+
+    window.addEventListener('DOMContentLoaded', () => {
+        const urlParams = new URLSearchParams(window.location.search);
+        const token = urlParams.get('token');
+
+        if (!token) {
+            showError("未偵測到您的專屬識別碼，請使用專屬連結進入。");
+            return;
+        }
+
+        fetch(`${GAS_API_URL}?token=${token}`, {
+            method: 'GET',
+            redirect: 'follow'
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                showError(data.error);
+            } else {
+                studentDataCache = data;
+                initSystem();
+            }
+        })
+        .catch(error => showError("無法連線至雲端系統，請稍後再試。"));
+    });
+
+    function showError(msg) {
+        document.getElementById('loading').style.display = 'none';
+        const errDiv = document.getElementById('error-message');
+        errDiv.style.display = 'block';
+        errDiv.innerText = msg;
+    }
+
+    function initSystem() {
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('result-section').style.display = 'block';
+
+        document.getElementById('info-seat').innerText = studentDataCache.studentInfo.seat;
+        document.getElementById('info-name').innerText = studentDataCache.studentInfo.name;
+
+        // 建立下拉選單 (最新考試排在最前面)
+        const selectBox = document.getElementById('exam-select');
+        selectBox.innerHTML = '';
+        const reversedExams = [...studentDataCache.exams].reverse(); 
+        
+        reversedExams.forEach((exam, index) => {
+            const option = document.createElement('option');
+            option.value = studentDataCache.exams.length - 1 - index; 
+            option.text = exam.examName;
+            selectBox.appendChild(option);
+        });
+
+        // 預設渲染最新的考試
+        renderExamData();
+    }
+
+    function renderExamData() {
+        const selectedIndex = document.getElementById('exam-select').value;
+        const examData = studentDataCache.exams[selectedIndex];
+
+        // 1. 讀取並顯示「一般平均」與「一般排名」(由後端提供)
+        document.getElementById('info-avg').innerText = examData.average ? examData.average.toFixed(1) : '-';
+        document.getElementById('info-rank').innerText = examData.rank ? `第 ${examData.rank} 名` : '-';
+        
+        // 2. 讀取並顯示「加權平均」與「加權排名」(由後端提供，前端完全不計算)
+        document.getElementById('info-weighted-avg').innerText = examData.weightedAverage ? examData.weightedAverage.toFixed(1) : '-';
+        document.getElementById('info-weighted-rank').innerText = examData.weightedRank ? `第 ${examData.weightedRank} 名` : '-';
+
+        document.getElementById('info-total-stu').innerText = `(共 ${examData.totalStudents} 人)`;
+
+        const tbody = document.getElementById('score-tbody');
+        tbody.innerHTML = '';
+        
+        let subjects = Object.keys(examData.scores);
+        let myChartScores = [];
+        let classChartAverages = [];
+
+        subjects.forEach(sub => {
+            const myScore = examData.scores[sub];
+            const classAvg = examData.classAverages[sub];
+            const weightDisplay = examData.weights[sub] || 1;
+            
+            myChartScores.push(myScore);
+            classChartAverages.push(classAvg ? classAvg.toFixed(1) : 0);
+
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td style="font-weight:bold;">${sub}</td>
+                <td style="color:#555;">x ${weightDisplay}</td>
+                <td style="color:${myScore < 60 ? 'var(--danger-color)' : 'inherit'}; font-weight:bold;">${myScore}</td>
+                <td style="color:#777;">${classAvg ? classAvg.toFixed(1) : '-'}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+
+        // 重新繪製圖表
+        if (myChart) myChart.destroy();
+        const ctx = document.getElementById('scoreChart').getContext('2d');
+        myChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: subjects,
+                datasets: [
+                    {
+                        label: '我的成績', data: myChartScores,
+                        borderColor: '#4e4376', backgroundColor: 'rgba(78, 67, 118, 0.1)',
+                        borderWidth: 3, fill: true
+                    },
+                    {
+                        label: '全班平均', data: classChartAverages,
+                        borderColor: '#2ec4b6', borderDash: [5, 5], borderWidth: 2
+                    }
+                ]
+            },
+            options: { responsive: true, maintainAspectRatio: false }
+        });
+    }
+</script>
+</body>
+</html>
