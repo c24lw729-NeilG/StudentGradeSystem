@@ -140,7 +140,7 @@
             showError("未偵測到您的專屬識別碼，請使用專屬連結進入。");
             return;
         }
-        document.getElementById('back-home').href = `home.html?token=${token}`;
+        document.getElementById('back-home').href = `index.html?token=${token}`;
 
         fetch(`${GAS_API_URL}?token=${token}`, {
             method: 'GET',
