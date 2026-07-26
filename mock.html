@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>個人複習模考成績查詢系統</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --primary-color: #2b5876;
+            --secondary-color: #4e4376;
+            --bg-color: #f4f7f6;
+            --card-bg: #ffffff;
+            --highlight: #f39c12;
+            --highlight-alt: #e67e22;
+        }
+        body {
+            background-color: var(--bg-color); color: #333;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            padding: 20px; margin: 0;
+        }
+        .container { max-width: 800px; margin: 0 auto; }
+        .card {
+            background: var(--card-bg); padding: 25px;
+            border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+        }
+        .student-info-box {
+            display: flex; justify-content: space-around;
+            background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px;
+            font-size: 16px; font-weight: bold; flex-wrap: wrap; gap: 15px; text-align: center;
+        }
+        .rank-badge { background: var(--highlight); color: white; padding: 4px 10px; border-radius: 20px; font-size: 14px; }
+        .school-rank-badge { background: var(--highlight-alt); color: white; padding: 4px 10px; border-radius: 20px; font-size: 14px; }
+        
+        .exam-selector-container { text-align: center; margin-bottom: 20px; }
+        select {
+            padding: 10px; font-size: 16px; border-radius: 5px;
+            border: 2px solid var(--primary-color); outline: none; cursor: pointer;
+        }
+        
+        table { width: 100%; border-collapse: collapse; margin-bottom: 25px; }
+        th, td { border: 1px solid #e0e0e0; padding: 12px; text-align: center; }
+        th { background-color: #f8f9fa; color: var(--primary-color); }
+        .score-a { color: #27ae60; font-weight: bold; } 
+        .score-b { color: #2980b9; font-weight: bold; } 
+        .score-c { color: #c0392b; font-weight: bold; } 
+        
+        .chart-container { position: relative; height: 350px; width: 100%; margin-top: 20px;}
+        #loading { text-align: center; font-size: 18px; color: var(--primary-color); padding: 50px; }
+        #error-message { color: #e71d36; text-align: center; font-weight: bold; display: none; }
+        #result-section { display: none; }
+        
+        .back-btn {
+            display: inline-block; margin-bottom: 15px; color: var(--primary-color);
+            text-decoration: none; font-weight: bold; border: 1px solid var(--primary-color);
+            padding: 5px 15px; border-radius: 5px; transition: 0.3s;
+        }
+        .back-btn:hover { background: var(--primary-color); color: white; }
+
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="card">
+        <a href="#" id="back-home" class="back-btn">← 回首頁</a>
+        
+        <h2 style="text-align: center; color: var(--primary-color);">複習模考成績查詢系統</h2>
+        
+        <div id="loading">連線雲端資料庫中，請稍候...</div>
+        <div id="error-message"></div>
+
+        <div id="result-section">
+            <div class="student-info-box">
+                <div>座號：<span id="info-seat" style="color:var(--primary-color);"></span></div>
+                <div>姓名：<span id="info-name" style="color:var(--primary-color);"></span></div>
+            </div>
+
+            <div class="exam-selector-container">
+                <label for="mock-select" style="font-weight:bold;">請選擇模考：</label>
+                <select id="mock-select" onchange="renderMockData()"></select>
+            </div>
+
+            <div class="student-info-box" style="background: #e9f5f9;">
+                <div>總積分：<span id="info-total-point" style="color:#d35400; font-size: 20px;"></span></div>
+                <div>寫作級分：<span id="info-writing" style="color:var(--primary-color);"></span></div>
+                <div>班級排名：<span id="info-class-rank" class="rank-badge"></span></div>
+                <div>校排名：<span id="info-school-rank" class="school-rank-badge"></span></div>
+            </div>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th>科目</th>
+                        <th>各科總分</th>
+                        <th>積分標示 (7級分)</th>
+                    </tr>
+                </thead>
+                <tbody id="mock-tbody"></tbody>
+            </table>
+
+            <h3 style="text-align: center;">各科積分雷達圖 (滿分7分)</h3>
+            <div class="chart-container">
+                <canvas id="radarChart"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // ★★★ 請替換成您重新部署後的 GAS API 網址 ★★★
+    const GAS_API_URL = "https://script.google.com/macros/s/你的應用程式ID/exec";
+    
+    let studentDataCache = null;
+    let radarChart = null;
+
+    window.addEventListener('DOMContentLoaded', () => {
+        const urlParams = new URLSearchParams(window.location.search);
+        const token = urlParams.get('token');
+
+        if (!token) {
+            showError("未偵測到您的專屬識別碼，請使用專屬連結進入。");
+            return;
+        }
+
+        // 綁定回首頁按鈕
+        document.getElementById('back-home').href = `home.html?token=${token}`;
+
+        fetch(`${GAS_API_URL}?token=${token}`, {
+            method: 'GET',
+            redirect: 'follow'
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                showError(data.error);
+            } else {
+                studentDataCache = data;
+                initMockSystem();
+            }
+        })
+        .catch(error => showError("無法連線至雲端系統，請稍後再試。"));
+    });
+
+    function showError(msg) {
+        document.getElementById('loading').style.display = 'none';
+        const errDiv = document.getElementById('error-message');
+        errDiv.style.display = 'block';
+        errDiv.innerText = msg;
+    }
+
+    function initMockSystem() {
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('result-section').style.display = 'block';
+
+        document.getElementById('info-seat').innerText = studentDataCache.studentInfo.seat;
+        document.getElementById('info-name').innerText = studentDataCache.studentInfo.name;
+
+        if (!studentDataCache.mocks || studentDataCache.mocks.length === 0) {
+            showError("目前尚無您的模考資料。");
+            document.getElementById('result-section').style.display = 'none';
+            return;
+        }
+
+        const selectBox = document.getElementById('mock-select');
+        selectBox.innerHTML = '';
+        
+        const reversedMocks = [...studentDataCache.mocks].reverse(); 
+        
+        reversedMocks.forEach((mock, index) => {
+            const option = document.createElement('option');
+            option.value = studentDataCache.mocks.length - 1 - index; 
+            option.text = mock.mockName;
+            selectBox.appendChild(option);
+        });
+
+        renderMockData();
+    }
+
+    function getGradeLevel(point) {
+        const p = Number(point);
+        if (p === 7) return { text: "A++", class: "score-a" };
+        if (p === 6) return { text: "A+", class: "score-a" };
+        if (p === 5) return { text: "A", class: "score-a" };
+        if (p === 4) return { text: "B++", class: "score-b" };
+        if (p === 3) return { text: "B+", class: "score-b" };
+        if (p === 2) return { text: "B", class: "score-b" };
+        if (p === 1) return { text: "C", class: "score-c" };
+        return { text: "-", class: "" };
+    }
+
+    function renderMockData() {
+        const selectedIndex = document.getElementById('mock-select').value;
+        const mockData = studentDataCache.mocks[selectedIndex];
+
+        // 處理頂部資訊，若無資料則顯示 '-' 或 '未輸入'
+        document.getElementById('info-total-point').innerText = mockData.totalPoint || '-';
+        document.getElementById('info-writing').innerText = mockData.writing ? `${mockData.writing} 級分` : '-';
+        document.getElementById('info-class-rank').innerText = mockData.classRank ? `第 ${mockData.classRank} 名` : '-';
+        document.getElementById('info-school-rank').innerText = mockData.schoolRank ? `第 ${mockData.schoolRank} 名` : '未輸入';
+
+        const tbody = document.getElementById('mock-tbody');
+        tbody.innerHTML = '';
+
+        // 整理五科顯示資料
+        const subjects = [
+            { name: "國文", point: mockData.chnPoint, score: mockData.chnScore },
+            { name: "英文", point: mockData.engPoint, score: mockData.engScore },
+            { name: "數學", point: mockData.mathPoint, score: mockData.mathScore },
+            { name: "社會", point: mockData.socPoint, score: mockData.socScore },
+            { name: "自然", point: mockData.sciPoint, score: mockData.sciScore }
+        ];
+
+        let radarScores = [];
+
+        subjects.forEach(sub => {
+            const grade = getGradeLevel(sub.point);
+            
+            // 處理總分顯示格式
+            let displayScore = sub.score;
+            if(displayScore !== "" && displayScore !== null && !isNaN(Number(displayScore))){
+                displayScore = Number(displayScore).toFixed(1).replace('.0', ''); // 若為整數則不顯示小數點
+            } else {
+                displayScore = "-";
+            }
+
+            radarScores.push(Number(sub.point) || 0); 
+
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td style="font-weight:bold;">${sub.name}</td>
+                <td style="color:#777;">${displayScore}</td>
+                <td class="${grade.class}">${sub.point} 點 (${grade.text})</td>
+            `;
+            tbody.appendChild(tr);
+        });
+
+        // 繪製雷達圖
+        if (radarChart) radarChart.destroy();
+        const ctx = document.getElementById('radarChart').getContext('2d');
+        
+        radarChart = new Chart(ctx, {
+            type: 'radar',
+            data: {
+                labels: ['國文', '英文', '數學', '社會', '自然'],
+                datasets: [{
+                    label: '各科積分(滿分7分)',
+                    data: radarScores,
+                    backgroundColor: 'rgba(230, 126, 34, 0.2)',
+                    borderColor: 'rgba(230, 126, 34, 1)',
+                    pointBackgroundColor: 'rgba(230, 126, 34, 1)',
+                    pointBorderColor: '#fff',
+                    pointHoverBackgroundColor: '#fff',
+                    pointHoverBorderColor: 'rgba(230, 126, 34, 1)'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    r: {
+                        angleLines: { display: true },
+                        suggestedMin: 0,
+                        suggestedMax: 7,
+                        ticks: { stepSize: 1 }
+                    }
+                }
+            }
+        });
+    }
+</script>
+</body>
+</html>
