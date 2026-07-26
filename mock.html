@@ -124,7 +124,7 @@
         }
 
         // 綁定回首頁按鈕
-        document.getElementById('back-home').href = `home.html?token=${token}`;
+        document.getElementById('back-home').href = `index.html?token=${token}`;
 
         fetch(`${GAS_API_URL}?token=${token}`, {
             method: 'GET',
