@@ -105,14 +105,20 @@
         <div id="menu-section">
             <!-- 假設段考頁面叫做 index.html -->
             <a id="link-exam" class="menu-btn" href="#">
-                <h3>📅 歷次段考成績</h3>
+                <h3>📅 歷次平時及段考成績</h3>
                 <p>查詢段考排名與各科成績分析圖表</p>
             </a>
 
             <!-- 假設模擬考頁面叫做 mock.html -->
             <a id="link-mock" class="menu-btn" href="#">
-                <h3>🎯 複習模考成績</h3>
+                <h3>🎯 複習題本模考成績</h3>
                 <p>查詢會考七級分、積分轉換與落點分析</p>
+            </a>
+
+            <!-- 新增：周六複習卷成績 -->
+            <a id="link-saturday" class="menu-btn" href="#">
+                <h3>📝 周六複習卷成績</h3>
+                <p>查詢周六各單元複習卷成績與班級平均比較</p>
             </a>
         </div>
     </div>
@@ -140,6 +146,7 @@
             // ⚠️ 這裡設定檔案名稱，請依照你在 GitHub 上的實際檔名修改
             document.getElementById('link-exam').href = `exam.html?token=${token}`;
             document.getElementById('link-mock').href = `mock.html?token=${token}`; // 這是你接下來要處理的新頁面
+            document.getElementById('link-saturday').href = `saturday.html?token=${token}`;
         }
     });
 </script>
