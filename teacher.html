@@ -174,7 +174,7 @@
             </div>
         </div>
 
-        <!-- 條件篩選區 (分類與考試) -->
+        <!-- 條件篩選區 (分類、考試與排序方式) -->
         <div class="filter-group">
             <div class="filter-item">
                 <label for="category-select" style="font-weight:bold;">考試類別：</label>
@@ -188,6 +188,14 @@
             <div class="filter-item">
                 <label for="exam-select" style="font-weight:bold;">選擇場次：</label>
                 <select id="exam-select" onchange="renderStudentTable()"></select>
+            </div>
+
+            <div class="filter-item">
+                <label for="sort-select" style="font-weight:bold;">排序方式：</label>
+                <select id="sort-select" onchange="renderStudentTable()">
+                    <option value="seat">🔢 依座號排序</option>
+                    <option value="rank">🏆 依班排名排序</option>
+                </select>
             </div>
         </div>
 
@@ -241,7 +249,6 @@
     let modalChartInstance = null;
 
     window.addEventListener('DOMContentLoaded', () => {
-        // 清除舊的暫存，避免一進網頁就用錯誤的資料發送請求
         sessionStorage.removeItem('adminToken');
         showLoginForm();
     });
@@ -267,9 +274,7 @@
         btn.disabled = true;
         errDiv.style.display = 'none';
 
-        // 嘗試以目前選定的分類去後端驗證密碼
         verifyAndLoadData(inputPwd, () => {
-            // 驗證失敗 callback
             btn.innerText = "登入後台";
             btn.disabled = false;
             errDiv.style.display = 'block';
@@ -293,7 +298,6 @@
         }
     }
 
-    // 驗證並載入資料
     function verifyAndLoadData(token, onFail) {
         const apiUrl = API_CONFIG[currentCategory];
         fetch(`${apiUrl}?adminToken=${encodeURIComponent(token)}&mode=allStudents`, {
@@ -312,7 +316,6 @@
                     handleLogout();
                 }
             } else {
-                // 驗證成功
                 sessionStorage.setItem('adminToken', token);
                 document.getElementById('login-container').style.display = 'none';
                 document.getElementById('admin-main-container').style.display = 'block';
@@ -330,7 +333,6 @@
         });
     }
 
-    // 取得指定分類資料
     function loadCategoryData(category, token) {
         document.getElementById('loading').style.display = 'block';
         document.getElementById('error-message').style.display = 'none';
@@ -371,7 +373,6 @@
         examSelect.innerHTML = '';
         
         currentExamList = rawClassData.examList || [];
-        // 最新考試排最前
         [...currentExamList].reverse().forEach((examName, idx) => {
             const opt = document.createElement('option');
             opt.value = currentExamList.length - 1 - idx;
@@ -382,17 +383,39 @@
         renderStudentTable();
     }
 
-    // 渲染主名冊表格 (按學生座號升冪排序)
+    // 渲染主名冊表格 (支援依座號或依排名排序)
     function renderStudentTable() {
         document.getElementById('loading').style.display = 'none';
         document.getElementById('content-section').style.display = 'block';
 
         const examIdx = document.getElementById('exam-select').value;
+        const sortBy = document.getElementById('sort-select').value;
         const thead = document.getElementById('roster-thead');
         const tbody = document.getElementById('roster-tbody');
         tbody.innerHTML = '';
 
-        let students = (rawClassData.students || []).slice().sort((a, b) => Number(a.seat) - Number(b.seat));
+        let students = (rawClassData.students || []).slice();
+
+        students.sort((a, b) => {
+            if (sortBy === 'rank') {
+                let rankA, rankB;
+                if (currentCategory === 'mock') {
+                    rankA = a.mocks?.[examIdx]?.classRank;
+                    rankB = b.mocks?.[examIdx]?.classRank;
+                } else {
+                    rankA = a.exams?.[examIdx]?.rank;
+                    rankB = b.exams?.[examIdx]?.rank;
+                }
+
+                const numA = (rankA !== undefined && rankA !== null && rankA !== '') ? Number(rankA) : Infinity;
+                const numB = (rankB !== undefined && rankB !== null && rankB !== '') ? Number(rankB) : Infinity;
+
+                if (numA !== numB) return numA - numB;
+                return Number(a.seat) - Number(b.seat);
+            }
+            // 預設依座號排序
+            return Number(a.seat) - Number(b.seat);
+        });
 
         if (currentCategory === 'mock') {
             thead.innerHTML = `
