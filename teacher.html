@@ -241,19 +241,9 @@
     let modalChartInstance = null;
 
     window.addEventListener('DOMContentLoaded', () => {
-        // 檢查 Session 中是否已保留密碼，或者網址列有帶入 adminToken
-        const savedToken = sessionStorage.getItem('adminToken');
-        const urlParams = new URLSearchParams(window.location.search);
-        const urlToken = urlParams.get('adminToken') || urlParams.get('token');
-
-        const activeToken = savedToken || urlToken;
-
-        if (activeToken) {
-            sessionStorage.setItem('adminToken', activeToken);
-            verifyAndLoadData(activeToken);
-        } else {
-            showLoginForm();
-        }
+        // 清除舊的暫存，避免一進網頁就用錯誤的資料發送請求
+        sessionStorage.removeItem('adminToken');
+        showLoginForm();
     });
 
     function showLoginForm() {
